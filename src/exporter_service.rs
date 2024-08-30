@@ -108,7 +108,7 @@ impl ExporterService {
             if write_spot_price {
                 Retry::spawn(
                     ExponentialBackoff::from_millis(100).map(jitter).take(3),
-                    || self.config.bigquery_client.insert_spot_price(&spot_price),
+                    || self.config.bigquery_client.insert_spot_price(spot_price),
                 )
                 .await?;
                 last_from = Some(spot_price.from);
