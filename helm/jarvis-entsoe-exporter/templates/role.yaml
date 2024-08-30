@@ -1,0 +1,17 @@
+{{- if .Values.rbac.enable -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "jarvis-entsoe-exporter.fullname" . }}
+  labels:
+    {{- include "jarvis-entsoe-exporter.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+{{- end -}}
