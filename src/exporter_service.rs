@@ -74,7 +74,7 @@ impl ExporterService {
             period_start, period_end
         );
 
-        let spot_price_response = Retry::spawn(
+        let Some(spot_price_response) = Retry::spawn(
             ExponentialBackoff::from_millis(100).map(jitter).take(3),
             || {
                 self.config
@@ -82,7 +82,11 @@ impl ExporterService {
                     .get_spot_prices(period_start, period_end)
             },
         )
-        .await?;
+        .await?
+        else {
+            info!("Did not receive spot prices, trying again later");
+            return Ok(());
+        };
 
         let retrieved_spot_prices = spot_price_response.data.market_prices_electricity;
         info!("Retrieved {} day-ahead prices", retrieved_spot_prices.len());
