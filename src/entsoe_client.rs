@@ -96,6 +96,12 @@ pub struct EntsoeDayAheadPrices {
 pub struct DayAheadPricesTimeSeries {
     #[serde(rename = "Period", default)]
     pub periods: Vec<DayAheadPricesPeriod>,
+    #[allow(unused)]
+    #[serde(rename = "currency_Unit.name")]
+    pub currency_unit: String,
+    #[allow(unused)]
+    #[serde(rename = "price_Measure_Unit.name")]
+    pub price_measure_unit: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -286,6 +292,8 @@ mod tests {
         let response = serde_xml_rs::from_str::<EntsoeDayAheadPrices>(&input)
             .expect("Failed to deserialize xml response");
 
+        assert_eq!(response.time_series[0].currency_unit, "EUR");
+        assert_eq!(response.time_series[0].price_measure_unit, "MWH");
         assert_eq!(
             response.time_series[0].periods[0].time_interval.start,
             Utc.with_ymd_and_hms(2023, 2, 15, 23, 0, 0).unwrap()
@@ -312,6 +320,8 @@ mod tests {
         let response = serde_xml_rs::from_str::<EntsoeDayAheadPrices>(&input)
             .expect("Failed to deserialize xml response");
 
+        assert_eq!(response.time_series[0].currency_unit, "EUR");
+        assert_eq!(response.time_series[0].price_measure_unit, "MWH");
         assert_eq!(
             response.time_series[0].periods[0].time_interval.start,
             Utc.with_ymd_and_hms(2023, 2, 15, 23, 0, 0).unwrap()
