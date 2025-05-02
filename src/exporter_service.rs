@@ -88,6 +88,11 @@ impl ExporterService {
         let end_of_tomorrow = add_time_delta_fn(Utc::now(), Duration::days(2));
 
         loop {
+            if Utc::now() - now > Duration::seconds(200) {
+                info!("Job ran for more than 200 seconds, finished fetching data");
+                break;
+            }
+
             if period_start >= end_of_tomorrow {
                 info!("Next start {period_start} >= {end_of_tomorrow}, finished fetching data");
                 break;
