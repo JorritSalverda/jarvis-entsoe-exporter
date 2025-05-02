@@ -5,7 +5,6 @@ mod state_client;
 mod types;
 
 use bigquery_client::BigqueryClient;
-use chrono::Utc;
 use entsoe_client::EntsoeClient;
 use exporter_service::ExporterService;
 use state_client::StateClient;
@@ -22,7 +21,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let exporter_service =
         ExporterService::from_env(bigquery_client, spot_price_client, state_client)?;
 
-    exporter_service.run(Utc::now()).await
+    exporter_service.run().await
 }
 
 #[cfg(test)]

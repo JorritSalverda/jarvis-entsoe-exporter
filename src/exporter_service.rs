@@ -2,7 +2,7 @@ use crate::bigquery_client::BigqueryClient;
 use crate::entsoe_client::EntsoeClient;
 use crate::state_client::StateClient;
 use crate::types::*;
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use chrono::{DateTime, Duration, DurationRound, TimeDelta, Utc};
 use log::info;
 use std::error::Error;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
@@ -57,7 +57,7 @@ impl ExporterService {
         )?))
     }
 
-    pub async fn run(&self, start_date: DateTime<Utc>) -> Result<(), Box<dyn Error>> {
+    pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         let now: DateTime<Utc> = Utc::now();
 
         info!("Initalizing BigQuery table...");
@@ -66,59 +66,92 @@ impl ExporterService {
         info!("Reading previous state...");
         let state = self.config.state_client.read_state()?;
 
-        let period_start: DateTime<Utc> = start_date.duration_trunc(Duration::days(1)).unwrap();
-        let period_end: DateTime<Utc> = period_start + Duration::days(1);
-
-        info!(
-            "Retrieving day-ahead prices between {} and {}...",
-            period_start, period_end
-        );
-
-        let Some(spot_price_response) = Retry::spawn(
-            ExponentialBackoff::from_millis(100).map(jitter).take(3),
-            || {
-                self.config
-                    .spot_price_client
-                    .get_spot_prices(period_start, period_end)
-            },
-        )
-        .await?
-        else {
-            info!("Did not receive spot prices, trying again later");
-            return Ok(());
+        let add_time_delta_fn = |input: DateTime<Utc>, delta: TimeDelta| -> DateTime<Utc> {
+            (input
+                .with_timezone(&chrono_tz::Tz::Europe__Amsterdam)
+                .duration_trunc(Duration::days(1))
+                .unwrap()
+                + delta)
+                .with_timezone(&Utc)
         };
 
-        let retrieved_spot_prices = spot_price_response.data.market_prices_electricity;
-        info!("Retrieved {} day-ahead prices", retrieved_spot_prices.len());
+        let start_date: DateTime<Utc> = if let Some(state) = &state {
+            add_time_delta_fn(state.last_from, Duration::days(0))
+        } else {
+            add_time_delta_fn(Utc::now(), Duration::days(0))
+        };
 
-        info!(
-            "Storing retrieved day-ahead prices between {} and {}...",
-            period_start, period_end
-        );
+        let mut period_start: DateTime<Utc> = start_date;
         let mut future_spot_prices: Vec<SpotPrice> = vec![];
         let mut last_from: Option<DateTime<Utc>> = None;
-        for spot_price in &retrieved_spot_prices {
-            info!("{:?}", spot_price);
-            if spot_price.till > now {
-                future_spot_prices.push(spot_price.clone());
+
+        let end_of_tomorrow = add_time_delta_fn(Utc::now(), Duration::days(2));
+
+        loop {
+            if period_start >= end_of_tomorrow {
+                info!("Next start {period_start} >= {end_of_tomorrow}, finished fetching data");
+                break;
             }
 
-            let write_spot_price = if let Some(st) = &state {
-                spot_price.from > st.last_from
-            } else {
-                true
+            let period_end: DateTime<Utc> = add_time_delta_fn(period_start, Duration::days(1));
+
+            info!(
+                "Retrieving day-ahead prices between {} and {}...",
+                period_start, period_end
+            );
+
+            let Some(spot_price_response) = Retry::spawn(
+                ExponentialBackoff::from_millis(100).map(jitter).take(3),
+                || {
+                    self.config
+                        .spot_price_client
+                        .get_spot_prices(period_start, period_end)
+                },
+            )
+            .await?
+            else {
+                info!("Did not receive spot prices, trying again later");
+                break;
             };
 
-            if write_spot_price {
-                Retry::spawn(
-                    ExponentialBackoff::from_millis(100).map(jitter).take(3),
-                    || self.config.bigquery_client.insert_spot_price(spot_price),
-                )
-                .await?;
-                last_from = Some(spot_price.from);
-            } else {
-                info!("Skipping writing to BigQuery, already present");
+            let retrieved_spot_prices = spot_price_response.data.market_prices_electricity;
+            info!("Retrieved {} day-ahead prices", retrieved_spot_prices.len());
+
+            info!(
+                "Storing retrieved day-ahead prices between {} and {}...",
+                period_start, period_end
+            );
+
+            // reset spot prices to store in state
+            if !retrieved_spot_prices.is_empty() {
+                future_spot_prices = vec![];
             }
+
+            for spot_price in &retrieved_spot_prices {
+                info!("{:?}", spot_price);
+                if spot_price.till > now {
+                    future_spot_prices.push(spot_price.clone());
+                }
+
+                let write_spot_price = if let Some(st) = &state {
+                    spot_price.from > st.last_from
+                } else {
+                    true
+                };
+
+                if write_spot_price {
+                    Retry::spawn(
+                        ExponentialBackoff::from_millis(100).map(jitter).take(3),
+                        || self.config.bigquery_client.insert_spot_price(spot_price),
+                    )
+                    .await?;
+                    last_from = Some(spot_price.from);
+                } else {
+                    info!("Skipping writing to BigQuery, already present");
+                }
+            }
+
+            period_start = period_end;
         }
 
         if last_from.is_some() {

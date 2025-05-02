@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 chrono = "0.4"
+chrono-tz = "0.10.0"
 ctor = "0.1"
 json_env_logger = { version = "0.1", features = ["iso-timestamps", "backtrace"] }
 log = { version = "0.4", features = ["kv_unstable_std"]}
