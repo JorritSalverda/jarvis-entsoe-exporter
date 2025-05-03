@@ -83,7 +83,7 @@ impl ExporterService {
 
         let mut period_start: DateTime<Utc> = start_date;
         let mut future_spot_prices: Vec<SpotPrice> = vec![];
-        let mut last_from: Option<DateTime<Utc>> = None;
+        let mut last_till: Option<DateTime<Utc>> = None;
 
         let end_of_tomorrow = add_time_delta_fn(Utc::now(), Duration::days(2));
 
@@ -150,7 +150,7 @@ impl ExporterService {
                         || self.config.bigquery_client.insert_spot_price(spot_price),
                     )
                     .await?;
-                    last_from = Some(spot_price.from);
+                    last_till = Some(spot_price.till);
                 } else {
                     info!("Skipping writing to BigQuery, already present");
                 }
@@ -159,11 +159,11 @@ impl ExporterService {
             period_start = period_end;
         }
 
-        if last_from.is_some() {
+        if last_till.is_some() {
             info!("Writing new state...");
             let new_state = State {
                 future_spot_prices,
-                last_from: last_from.unwrap(),
+                last_from: last_till.unwrap(),
             };
 
             self.config.state_client.store_state(&new_state).await?;
